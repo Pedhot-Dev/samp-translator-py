@@ -90,7 +90,19 @@ Changing the style:
 Settings are stored in a local file:
 
 ## License
-Apache-2.0
+This project is licensed under the **Apache License 2.0**.
+
+You are free to:
+- use
+- modify
+- distribute
+- include in commercial projects
+
+As long as you:
+- include the license
+- state changes if modified
+
+See the `LICENSE` file for full details.
 
 ## Thanks to
 - GPT as code helper and README maker
