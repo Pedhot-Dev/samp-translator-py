@@ -1,109 +1,72 @@
-# SAMP Translator (Python)
+# Arch Linux RP Translator
 
-A lightweight desktop translator for SAMP / GTA Roleplay, designed to translate RP text intelligently while respecting RP command rules.
-
-Built for fast, hotkey-based usage with optional AI support, local caching, and safe fallback behavior.
-
----
+A Python-based global text translation tool optimized for Arch Linux (X11/Wayland).
 
 ## Features
+- **Global Hotkey (F9)**: Works in fullscreen applications via `evdev`.
+- **In-place Translation**: Simulates Ctrl+C → Translate → Ctrl+V.
+- **Configurable**: All settings in `config.yml`.
+- **Persistent Cache**: Reduces API calls by storing results locally.
+- **Hard Fallback**: Returns original text on any network/API error.
+- **Custom Prompts**: External `prompt.txt` file.
 
-- Hotkey-based translation (`F9`)
-- RP-aware command handling:
-  - `/me`, `/lme`
-  - `/do`, `/ldo`
-  - Other commands treated as dialogue
-- Parenthetical action handling inside dialogue  
-  `(example: "You (points at John)")`
-- Translation styles:
-  - **strict** – grammatically correct English
-  - **street** – casual / slang-friendly
-  - **broken** – intentionally imperfect English
-- Local SQLite cache (reduces API usage)
-- Tray icon with enable/disable toggle
-- Settings UI (no restart required)
-- Offline-safe fallback (no crash if AI is unavailable)
-- Windows executable (no Python required)
-
----
+## Why the Refactor?
+The original Windows-based version relied on `keyboard` hooks and `tkinter` which are unreliable on Arch Linux, especially under Wayland or strict X11 setups. This version uses:
+- **`evdev`**: For low-level input handling (listening to F9) and output simulation (uinput for Ctrl+C/V).
+- **Native Clipboard Tools**: `wl-copy`/`wl-paste` (Wayland) and `xclip`/`xsel` (X11).
+- **Headless Design**: Runs as a CLI/Daemon, no GUI dependencies.
 
 ## Installation
 
-1. Go to the **Releases** page.
-2. Download the latest `.exe` (x64 or x86).
-3. Place it anywhere you want and run it.
+### 1. Requirements
+Ensure you have the following system tools:
+- **X11**: `xclip` or `xsel`
+- **Wayland**: `wl-clipboard`
+- **Python**: 3.x
 
-No Python installation is required.
+### 2. Setup
+```bash
+# Clone/Download
+cd samp-translator-py
 
----
+# Install dependencies
+pip install -r requirements.txt
+```
 
-## Usage
+### 3. Permissions (Critical)
+The tool uses `evdev` to listen to keyboard events and inject keys. This requires access to `/dev/input/*` and `/dev/uinput`.
 
-1. Select any text (in-game chat, editor, browser, etc.).
-2. Press **F9**.
-3. The selected text is replaced with the translated result.
+**Option A: Run as Root (Easiest)**
+```bash
+# Run with sudo using the virtual environment python
+sudo .venv/bin/python main.py
+```
 
-The application runs in the background and is accessible from the system tray.
+*Note: I have already created the `.venv` and installed dependencies for you.*
 
----
+**Option B: Add user to input group**
+```bash
+sudo usermod -aG input $USER
+# You may also need to create a udev rule for uinput if not accessible
+# Log out and back in for changes to take effect
+```
 
-## Settings & Configuration
+## Configuration
+Edit `config.yml` to set your API key and preferences:
+```yaml
+openai:
+  api_key: "sk-..."
+  model: "gpt-4o-mini"
 
-### Opening Settings
-1. Locate the tray icon (bottom-right corner of the screen).
-2. Right-click the icon.
-3. Click **Settings**.
+hotkey: "KEY_F9"  # evdev key code
+style: "strict"   # Translation style
+```
 
----
+## Known Limitations
+- **Wayland**: Key injection via `uinput` works generally, but some Wayland compositors might intercept or block virtual input in secure contexts.
+- **Fullscreen Games**: `evdev` usually works fine, but anti-cheat systems might flag synthetic input.
 
-### Available Settings
-
-#### OpenAI API Key
-- Enables AI-powered translation.
-- If left empty or invalid:
-  - No API calls are made.
-  - Original text is returned unchanged.
-- The API key is stored **locally only**.
-
-> You must provide your own OpenAI API key.
-
----
-
-#### Translation Style
-Controls the tone of the translated output.
-
-Available styles:
-- **strict** – neutral, grammatically correct English
-- **street** – casual, informal tone
-- **broken** – intentionally imperfect English
-
-Changing the style:
-- Immediately affects new translations
-- Automatically clears the translation cache
-
----
-
-### Saving Settings
-- Click **Save** to apply changes.
-- No application restart is required.
-
-Settings are stored in a local file:
-
-## License
-This project is licensed under the **Apache License 2.0**.
-
-You are free to:
-- use
-- modify
-- distribute
-- include in commercial projects
-
-As long as you:
-- include the license
-- state changes if modified
-
-See the `LICENSE` file for full details.
-
-## Thanks to
-- GPT as code helper and README maker
-- OpenAI as AI translation API (but KIKIR ANJG)
+## Troubleshooting
+- **Permission Denied**: Run with `sudo`.
+- **No Translation**: Check `config.yml` API key and ensure you have internet access. If API fails, it pastes original text.
+- **Clipboard Error**: Install `xclip` (X11) or `wl-clipboard` (Wayland).

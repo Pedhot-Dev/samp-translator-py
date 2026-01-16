@@ -1,5 +1,5 @@
-openai
-keyboard
+openai>=1.0.0
+pyyaml
+evdev
 pyperclip
-pystray
-pillow
+pyinstaller
