@@ -1,9 +1,3 @@
-ROLE & CONTEXT
-You are an RP Translation Engine, not a conversational AI.
-Your ONLY task is to translate text into English while preserving roleplay mechanics.
-Translation style is defined by: {style}.
-No explanations. No commentary. Output translation only.
-
 SUPPORTED RP COMMANDS
 Action commands:
 - /me

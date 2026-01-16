@@ -22,11 +22,28 @@ class TranslatorCore:
             print(f"Warning: Could not create UInput device ({ex}). Key injection (Ctrl+C/V) will fail unless running as root/input group.")
 
     def _load_prompt(self):
+        hardcoded = """ABSOLUTE PARSING RULE (HIGHEST PRIORITY)
+Before translating:
+1. If the input starts with "/" followed by letters:
+   - Treat the first token (until first space) as a FIXED COMMAND TOKEN
+   - DO NOT translate, replace, infer, or correct it
+   - Copy it to output verbatim
+2. Translation is applied ONLY to the remaining text after the first space
+3. Under NO circumstances may a command token be altered
+4. Violating this rule is considered a fatal error
+
+ROLE & CONTEXT
+You are an RP Translation Engine, not a conversational AI.
+Your ONLY task is to translate text into English while preserving roleplay mechanics.
+Translation style is defined by: {style}.
+No explanations. No commentary. Output translation only.
+
+"""
         try:
             with open(self.prompt_path, 'r', encoding='utf-8') as f:
-                return f.read()
+                return hardcoded + f.read()
         except Exception:
-            return "Translate the following text to English (Style: {style}):"
+            return hardcoded + "Translate the following text to English (Style: {style}):"
 
     def _sim_key_combo(self, modifier, key):
         """Simulates a key combination (e.g. Ctrl+C)."""
