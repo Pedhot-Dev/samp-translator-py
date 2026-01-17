@@ -77,6 +77,7 @@ class TranslatorCore:
         
         # === STAGE 1: COMMAND PARSING ===
         command_token = ""
+        slash_cmd = ""
         translatable_text = original_text
         mode_context = "DIALOGUE" # Default mode
 
