@@ -116,12 +116,36 @@ class TranslatorCore:
             translated_body = cached
         else:
             # 4. Translate via OpenAI
-            print(f"Requesting translation (Mode: {mode_context})...")
-            
+            # Determine Style override for RP commands
+            # RP commands must ALWAYS be strict, covering the user's requirement.
+            effective_style = self.style
+            if slash_cmd in ["/me", "/lme", "/do", "/ldo"]:
+                effective_style = "strict"
+
             # Inject context into the style variable passed to prompt template
             # This ensures the AI sees the rule without seeing the token
-            augmented_style = f"{self.style}\n[SYSTEM CONTEXT]: {mode_context}"
+            augmented_style = f"{effective_style}\n[SYSTEM CONTEXT]: {mode_context}"
             
+            # Update cache key to include the EFFECTIVE style, not just the global style
+            # This ensures strict RP translations are cached separately or correctly
+            cache_key_extra = f"{effective_style}::{mode_context}"
+            
+            # Check cache again with specific key if needed, or just rely on the flow
+            # (Simplification: We checked cache above with self.style. If we switch to strict, we should check cache with strict.)
+            # Let's do a quick re-check for cache if style changed
+            if effective_style != self.style:
+                 cached_strict = self.cache.get(translatable_text, cache_key_extra)
+                 if cached_strict:
+                     print("Cache hit (Strict RP)!")
+                     translated_body = cached_strict
+                     # Skip API call
+                     final_text = f"{command_token} {translated_body}"
+                     self.clipboard.set_text(final_text)
+                     time.sleep(0.1)
+                     self._sim_key_combo("ctrl", "v")
+                     print("Done.")
+                     return
+
             translated_body = self.openai.translate_text(
                 translatable_text, 
                 self.prompt_template, 
@@ -131,7 +155,7 @@ class TranslatorCore:
             # Cache the BODY (without command)
             if translated_body != translatable_text:
                 self.cache.set(translatable_text, cache_key_extra, translated_body)
-                self.cache.log(original_text, translated_body, self.style)
+                self.cache.log(original_text, translated_body, effective_style)
 
         # === FINAL OUTPUT ASSEMBLY ===
         if command_token:
