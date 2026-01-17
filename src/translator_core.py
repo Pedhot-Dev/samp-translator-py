@@ -1,6 +1,6 @@
-
 import time
 import threading
+import os
 from evdev import UInput, ecodes as e
 
 class TranslatorCore:
@@ -12,21 +12,29 @@ class TranslatorCore:
         self.uinput = None
         self.style = config.get("style", "strict")
         
-        # Determine prompt file path
-        self.prompt_path = config.get("prompt_file", "prompt.txt")
-        self.prompt_template = self._load_prompt()
+        # Determine prompt file paths
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        # Assuming prompt files are in the parent directory or same logical root
+        # If running from main.py, they are in CWD or near config
+        # Use simple relative pathing or config based lookup.
+        self.prompt_action_path = "action-desc-prompt.txt"
+        self.prompt_dialog_path = "dialog-prompt.txt"
+        
+        self.prompt_action = self._load_file(self.prompt_action_path)
+        self.prompt_dialog = self._load_file(self.prompt_dialog_path)
 
         try:
             self.uinput = UInput()
         except Exception as ex:
             print(f"Warning: Could not create UInput device ({ex}). Key injection (Ctrl+C/V) will fail unless running as root/input group.")
 
-    def _load_prompt(self):
+    def _load_file(self, path):
         try:
-            with open(self.prompt_path, 'r', encoding='utf-8') as f:
+            with open(path, 'r', encoding='utf-8') as f:
                 return f.read()
         except Exception:
-            return "Translate the following text to English (Style: {style}):"
+            print(f"Warning: Could not load {path}. Using fallback.")
+            return "Translate to English (Style: {style})"
 
     def _sim_key_combo(self, modifier, key):
         """Simulates a key combination (e.g. Ctrl+C)."""
@@ -79,37 +87,32 @@ class TranslatorCore:
         command_token = ""
         slash_cmd = ""
         translatable_text = original_text
-        mode_context = "DIALOGUE" # Default mode
-
+        
         # Check if first token is a command (starts with / followed by letters)
-        # e.g. /me, /do, /low, /Radio
         first_space = original_text.find(" ")
         if first_space != -1:
             potential_cmd = original_text[:first_space]
             if potential_cmd.startswith("/") and len(potential_cmd) > 1 and potential_cmd[1].isalpha():
                 command_token = potential_cmd
-                translatable_text = original_text[first_space+1:].strip()
-                
-                # Determine Context for AI (Strictly Rules)
                 slash_cmd = command_token.lower()
-                if slash_cmd in ["/me", "/lme"]:
-                    mode_context = "ACTION (User is performing an action. Use 3rd person present tense, e.g. 'runs', 'points')."
-                elif slash_cmd in ["/do", "/ldo"]:
-                    mode_context = "DESCRIPTION (User is describing the environment/state. Use descriptive/passive English)."
-                else:
-                    mode_context = f"DIALOGUE (User is speaking with command {command_token})."
+                translatable_text = original_text[first_space+1:].strip()
         
         if not translatable_text:
             # Nothing to translate
             return
 
         # === STAGE 2: TRANSLATION ===
-        # We perform translation on the stripped text ONLY.
-        # But we inject the 'mode_context' into the style to guide neutral grammar.
-        
-        # 3. Check Cache (Cache key must include mode to be unique but NOT the command token itself if we want reusability, 
-        # actually command token matters for mode. Let's cache based on (translatable_text, style, mode_context))
-        cache_key_extra = f"{self.style}::{mode_context}"
+        # Select Prompt based on Method (Routing)
+        if slash_cmd in ["/me", "/lme", "/do", "/ldo"]:
+            prompt_template = self.prompt_action
+        else:
+            prompt_template = self.prompt_dialog
+
+        # 3. Check Cache
+        # Cache key must include style AND command type (action vs dialog) to be unique
+        # We can just use the prompt_template content hash or a simple ID
+        prompt_type = "action" if prompt_template == self.prompt_action else "dialog"
+        cache_key_extra = f"{self.style}::{prompt_type}"
         
         cached = self.cache.get(translatable_text, cache_key_extra)
         if cached:
@@ -117,46 +120,18 @@ class TranslatorCore:
             translated_body = cached
         else:
             # 4. Translate via OpenAI
-            # Determine Style override for RP commands
-            # RP commands must ALWAYS be strict, covering the user's requirement.
-            effective_style = self.style
-            if slash_cmd in ["/me", "/lme", "/do", "/ldo"]:
-                effective_style = "strict"
-
-            # Inject context into the style variable passed to prompt template
-            # This ensures the AI sees the rule without seeing the token
-            augmented_style = f"{effective_style}\n[SYSTEM CONTEXT]: {mode_context}"
+            print(f"Requesting translation (Type: {prompt_type})...")
             
-            # Update cache key to include the EFFECTIVE style, not just the global style
-            # This ensures strict RP translations are cached separately or correctly
-            cache_key_extra = f"{effective_style}::{mode_context}"
-            
-            # Check cache again with specific key if needed, or just rely on the flow
-            # (Simplification: We checked cache above with self.style. If we switch to strict, we should check cache with strict.)
-            # Let's do a quick re-check for cache if style changed
-            if effective_style != self.style:
-                 cached_strict = self.cache.get(translatable_text, cache_key_extra)
-                 if cached_strict:
-                     print("Cache hit (Strict RP)!")
-                     translated_body = cached_strict
-                     # Skip API call
-                     final_text = f"{command_token} {translated_body}"
-                     self.clipboard.set_text(final_text)
-                     time.sleep(0.1)
-                     self._sim_key_combo("ctrl", "v")
-                     print("Done.")
-                     return
-
             translated_body = self.openai.translate_text(
                 translatable_text, 
-                self.prompt_template, 
-                augmented_style
+                prompt_template, 
+                self.style
             )
             
             # Cache the BODY (without command)
             if translated_body != translatable_text:
                 self.cache.set(translatable_text, cache_key_extra, translated_body)
-                self.cache.log(original_text, translated_body, effective_style)
+                self.cache.log(original_text, translated_body, self.style)
 
         # === FINAL OUTPUT ASSEMBLY ===
         if command_token:
