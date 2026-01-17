@@ -60,12 +60,12 @@ class TranslatorCore:
         self.uinput.syn()
 
     def process_selection(self):
-        """Main workflow: Copy -> Translate -> Paste"""
+        """Main workflow: Copy -> Parse -> Translate -> Paste"""
         print("Processing selection...")
         
         # 1. Simulate Copy (Ctrl+C)
         self._sim_key_combo("ctrl", "c")
-        time.sleep(0.1) # Wait for clipboard to update
+        time.sleep(0.1) 
         
         # 2. Get Text
         original_text = self.clipboard.get_text()
@@ -75,27 +75,97 @@ class TranslatorCore:
 
         print(f"Original: {original_text[:50]}...")
         
-        # 3. Check Cache
-        cached = self.cache.get(original_text, self.style)
+        # === STAGE 1: COMMAND PARSING ===
+        command_token = ""
+        translatable_text = original_text
+        mode_context = "DIALOGUE" # Default mode
+
+        # Check if first token is a command (starts with / followed by letters)
+        # e.g. /me, /do, /low, /Radio
+        first_space = original_text.find(" ")
+        if first_space != -1:
+            potential_cmd = original_text[:first_space]
+            if potential_cmd.startswith("/") and len(potential_cmd) > 1 and potential_cmd[1].isalpha():
+                command_token = potential_cmd
+                translatable_text = original_text[first_space+1:].strip()
+                
+                # Determine Context for AI (Strictly Rules)
+                slash_cmd = command_token.lower()
+                if slash_cmd in ["/me", "/lme"]:
+                    mode_context = "ACTION (User is performing an action. Use 3rd person present tense, e.g. 'runs', 'points')."
+                elif slash_cmd in ["/do", "/ldo"]:
+                    mode_context = "DESCRIPTION (User is describing the environment/state. Use descriptive/passive English)."
+                else:
+                    mode_context = f"DIALOGUE (User is speaking with command {command_token})."
+        
+        if not translatable_text:
+            # Nothing to translate
+            return
+
+        # === STAGE 2: TRANSLATION ===
+        # We perform translation on the stripped text ONLY.
+        # But we inject the 'mode_context' into the style to guide neutral grammar.
+        
+        # 3. Check Cache (Cache key must include mode to be unique but NOT the command token itself if we want reusability, 
+        # actually command token matters for mode. Let's cache based on (translatable_text, style, mode_context))
+        cache_key_extra = f"{self.style}::{mode_context}"
+        
+        cached = self.cache.get(translatable_text, cache_key_extra)
         if cached:
             print("Cache hit!")
-            final_text = cached
+            translated_body = cached
         else:
             # 4. Translate via OpenAI
-            print("Requesting translation...")
-            final_text = self.openai.translate_text(
-                original_text, 
+            # Determine Style override for RP commands
+            # RP commands must ALWAYS be strict, covering the user's requirement.
+            effective_style = self.style
+            if slash_cmd in ["/me", "/lme", "/do", "/ldo"]:
+                effective_style = "strict"
+
+            # Inject context into the style variable passed to prompt template
+            # This ensures the AI sees the rule without seeing the token
+            augmented_style = f"{effective_style}\n[SYSTEM CONTEXT]: {mode_context}"
+            
+            # Update cache key to include the EFFECTIVE style, not just the global style
+            # This ensures strict RP translations are cached separately or correctly
+            cache_key_extra = f"{effective_style}::{mode_context}"
+            
+            # Check cache again with specific key if needed, or just rely on the flow
+            # (Simplification: We checked cache above with self.style. If we switch to strict, we should check cache with strict.)
+            # Let's do a quick re-check for cache if style changed
+            if effective_style != self.style:
+                 cached_strict = self.cache.get(translatable_text, cache_key_extra)
+                 if cached_strict:
+                     print("Cache hit (Strict RP)!")
+                     translated_body = cached_strict
+                     # Skip API call
+                     final_text = f"{command_token} {translated_body}"
+                     self.clipboard.set_text(final_text)
+                     time.sleep(0.1)
+                     self._sim_key_combo("ctrl", "v")
+                     print("Done.")
+                     return
+
+            translated_body = self.openai.translate_text(
+                translatable_text, 
                 self.prompt_template, 
-                self.style
+                augmented_style
             )
-            # Cache result (only if different or valid)
-            if final_text != original_text:
-                self.cache.set(original_text, self.style, final_text)
-                self.cache.log(original_text, final_text, self.style)
+            
+            # Cache the BODY (without command)
+            if translated_body != translatable_text:
+                self.cache.set(translatable_text, cache_key_extra, translated_body)
+                self.cache.log(original_text, translated_body, effective_style)
+
+        # === FINAL OUTPUT ASSEMBLY ===
+        if command_token:
+            final_text = f"{command_token} {translated_body}"
+        else:
+            final_text = translated_body
 
         # 5. Set Clipboard
         self.clipboard.set_text(final_text)
-        time.sleep(0.1) # Wait for clipboard write
+        time.sleep(0.1)
         
         # 6. Simulate Paste (Ctrl+V)
         self._sim_key_combo("ctrl", "v")
